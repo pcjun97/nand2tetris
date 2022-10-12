@@ -112,6 +112,18 @@ func (p *Parser) setCommandType() {
 		p.commandType = C_PUSH
 	case p.fields[0] == "pop" && len(p.fields) == 3:
 		p.commandType = C_POP
+	case p.fields[0] == "label" && len(p.fields) == 2:
+		p.commandType = C_LABEL
+	case p.fields[0] == "goto" && len(p.fields) == 2:
+		p.commandType = C_GOTO
+	case p.fields[0] == "if-goto" && len(p.fields) == 2:
+		p.commandType = C_IF
+	case p.fields[0] == "function" && len(p.fields) == 3:
+		p.commandType = C_FUNCTION
+	case p.fields[0] == "call" && len(p.fields) == 3:
+		p.commandType = C_CALL
+	case p.fields[0] == "return" && len(p.fields) == 1:
+		p.commandType = C_RETURN
 	default:
 		_, ok := arithmeticCommands[p.fields[0]]
 		if ok && len(p.fields) == 1 {

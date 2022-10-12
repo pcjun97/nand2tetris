@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if len(os.Args) != 2 {
-		log.Fatalln("usage: vm-translator source")
+		log.Fatalln("usage: VMTranslator source")
 	}
 
 	inputPath := os.Args[1]
@@ -23,8 +23,6 @@ func main() {
 	var inputFiles []string
 
 	if pathInfo.IsDir() {
-		outputFile = inputPath + path.Base(inputPath) + ".asm"
-
 		files, err := os.ReadDir(inputPath)
 		if err != nil {
 			log.Fatal(err)
@@ -32,9 +30,11 @@ func main() {
 
 		for _, file := range files {
 			if strings.HasSuffix(file.Name(), ".vm") {
-				inputFiles = append(inputFiles, inputPath+file.Name())
+				inputFiles = append(inputFiles, path.Join(inputPath, file.Name()))
 			}
 		}
+
+		outputFile = path.Join(inputPath, path.Base(inputPath)+".asm")
 	} else {
 		if !strings.HasSuffix(inputPath, ".vm") {
 			log.Fatalln("invalid file type")
@@ -48,6 +48,7 @@ func main() {
 
 	for _, file := range inputFiles {
 		p := NewParser(file)
+		c.SetFileName(file)
 
 		for p.HasMoreLines() {
 			p.Advance()
@@ -58,6 +59,18 @@ func main() {
 				c.WritePushPop("push", p.Arg1(), p.Arg2())
 			case C_POP:
 				c.WritePushPop("pop", p.Arg1(), p.Arg2())
+			case C_LABEL:
+				c.WriteLabel(p.Arg1())
+			case C_GOTO:
+				c.WriteGoto(p.Arg1())
+			case C_IF:
+				c.WriteIf(p.Arg1())
+			case C_FUNCTION:
+				c.WriteFunction(p.Arg1(), p.Arg2())
+			case C_CALL:
+				c.WriteCall(p.Arg1(), p.Arg2())
+			case C_RETURN:
+				c.WriteReturn()
 			}
 		}
 	}

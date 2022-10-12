@@ -5,44 +5,60 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 
 	_ "embed"
 )
 
+//go:embed embeds/init.asm
+var initAsm string
+
 //go:embed embeds/popD.asm
-var popD string
+var popDAsm string
 
 //go:embed embeds/fetchM.asm
-var fetchM string
+var fetchMAsm string
 
 //go:embed embeds/conditional.asm
-var conditional string
+var conditionalAsm string
 
 //go:embed embeds/push.asm
-var push string
+var pushAsm string
 
 //go:embed embeds/pop.asm
-var pop string
+var popAsm string
 
-//go:embed embeds/pushPointer.asm
-var pushPointer string
+//go:embed embeds/pushAddress.asm
+var pushAddressAsm string
 
-//go:embed embeds/popPointer.asm
-var popPointer string
+//go:embed embeds/pushSymbol.asm
+var pushSymbolAsm string
+
+//go:embed embeds/popSymbol.asm
+var popSymbolAsm string
 
 //go:embed embeds/pushConstant.asm
-var pushConstant string
-
-//go:embed embeds/pushPointer.asm
-var pushStatic string
-
-//go:embed embeds/popPointer.asm
-var popStatic string
+var pushConstantAsm string
 
 //go:embed embeds/endLoop.asm
-var endLoop string
+var endLoopAsm string
+
+//go:embed embeds/goto.asm
+var gotoAsm string
+
+//go:embed embeds/ifgoto.asm
+var ifgotoAsm string
+
+//go:embed embeds/function.asm
+var functionAsm string
+
+//go:embed embeds/call.asm
+var callAsm string
+
+//go:embed embeds/return.asm
+var returnAsm string
 
 var segmentMapping map[string]string = map[string]string{
 	"argument": "ARG",
@@ -60,6 +76,7 @@ type CodeWriter struct {
 	writer   *bufio.Writer
 	id       map[string]int
 	fileName string
+	function string
 }
 
 func NewCodeWriter(file string) *CodeWriter {
@@ -69,17 +86,22 @@ func NewCodeWriter(file string) *CodeWriter {
 	}
 
 	writer := bufio.NewWriter(f)
+	id := make(map[string]int)
 
 	c := CodeWriter{
 		file:   f,
 		writer: writer,
+		id:     id,
 	}
+
+	c.write(initAsm)
+	c.WriteCall("Sys.init", 0)
 
 	return &c
 }
 
 func (c *CodeWriter) SetFileName(fileName string) {
-	c.fileName = fileName
+	c.fileName = strings.TrimSuffix(path.Base(fileName), ".vm")
 }
 
 func (c *CodeWriter) WriteArithmetic(command string) {
@@ -88,25 +110,30 @@ func (c *CodeWriter) WriteArithmetic(command string) {
 
 	switch command {
 	case "add":
-		output = comment + popD + fetchM + "M=M+D\n"
+		output = comment + popDAsm + fetchMAsm + "M=M+D\n"
 
 	case "sub":
-		output = comment + popD + fetchM + "M=M-D\n"
+		output = comment + popDAsm + fetchMAsm + "M=M-D\n"
 
 	case "and":
-		output = comment + popD + fetchM + "M=M&D\n"
+		output = comment + popDAsm + fetchMAsm + "M=M&D\n"
 
 	case "or":
-		output = comment + popD + fetchM + "M=M|D\n"
+		output = comment + popDAsm + fetchMAsm + "M=M|D\n"
 
 	case "neg":
-		output = comment + fetchM + "M=-M\n"
+		output = comment + fetchMAsm + "M=-M\n"
 
 	case "not":
-		output = comment + fetchM + "M=!M\n"
+		output = comment + fetchMAsm + "M=!M\n"
 
 	case "eq", "gt", "lt":
-		output = comment + popD + fetchM + fmt.Sprintf(conditional, strings.ToUpper(command), c.getId(command))
+		label := fmt.Sprintf("%s_%d", strings.ToUpper(command), c.getId(c.function+"$"+command))
+		if c.function != "" {
+			label = c.function + "$" + label
+		}
+
+		output = comment + popDAsm + fetchMAsm + fmt.Sprintf(conditionalAsm, strings.ToUpper(command), label)
 	}
 
 	c.write(output)
@@ -133,25 +160,64 @@ func (c *CodeWriter) WritePushPop(command, segment string, index int) {
 }
 
 func (c *CodeWriter) WriteLabel(label string) {
+	comment := fmt.Sprintf("// label %s\n", label)
+
+	if c.function != "" {
+		label = c.function + "$" + label
+	}
+
+	output := fmt.Sprintf("(%s)\n", label)
+	c.write(comment + output)
 }
 
 func (c *CodeWriter) WriteGoto(label string) {
+	comment := fmt.Sprintf("// goto %s\n", label)
+
+	if c.function != "" {
+		label = c.function + "$" + label
+	}
+
+	output := fmt.Sprintf(gotoAsm, label)
+	c.write(comment + output)
 }
 
 func (c *CodeWriter) WriteIf(label string) {
+	comment := fmt.Sprintf("// if-goto %s\n", label)
+
+	if c.function != "" {
+		label = c.function + "$" + label
+	}
+
+	output := popDAsm + fmt.Sprintf(ifgotoAsm, label)
+	c.write(comment + output)
 }
 
 func (c *CodeWriter) WriteFunction(label string, nVars int) {
+	comment := fmt.Sprintf("// function %s %d\n", label, nVars)
+	output := fmt.Sprintf(functionAsm, label, nVars)
+	c.write(comment + output)
+	c.function = label
 }
 
 func (c *CodeWriter) WriteCall(label string, nArgs int) {
+	comment := fmt.Sprintf("// call %s %d\n", label, nArgs)
+	returnAddress := fmt.Sprintf("%s$ret%d", c.function, c.getId(c.function+"$ret"))
+	output := fmt.Sprintf(pushAddressAsm, returnAddress) +
+		fmt.Sprintf(pushSymbolAsm, "LCL") +
+		fmt.Sprintf(pushSymbolAsm, "ARG") +
+		fmt.Sprintf(pushSymbolAsm, "THIS") +
+		fmt.Sprintf(pushSymbolAsm, "THAT") +
+		fmt.Sprintf(callAsm, label, nArgs, returnAddress)
+	c.write(comment + output)
 }
 
 func (c *CodeWriter) WriteReturn() {
+	comment := fmt.Sprintf("// return\n")
+	c.write(comment + returnAsm)
 }
 
 func (c *CodeWriter) Close() {
-	c.write(endLoop)
+	c.write(endLoopAsm)
 
 	err := c.writer.Flush()
 	if err != nil {
@@ -187,9 +253,9 @@ func (c *CodeWriter) getDefaultPushPop(command, segment string, index int) strin
 
 	switch command {
 	case "push":
-		output = fmt.Sprintf(push, v, index)
+		output = fmt.Sprintf(pushAsm, v, index)
 	case "pop":
-		output = fmt.Sprintf(pop, v, index)
+		output = fmt.Sprintf(popAsm, v, index)
 	}
 
 	return output
@@ -200,13 +266,13 @@ func (c *CodeWriter) getPointer(command string, index int) string {
 
 	switch {
 	case command == "push" && index == 0:
-		output = fmt.Sprintf(pushPointer, "THIS")
+		output = fmt.Sprintf(pushSymbolAsm, "THIS")
 	case command == "push" && index == 1:
-		output = fmt.Sprintf(pushPointer, "THAT")
+		output = fmt.Sprintf(pushSymbolAsm, "THAT")
 	case command == "pop" && index == 0:
-		output = fmt.Sprintf(popPointer, "THIS")
+		output = fmt.Sprintf(popSymbolAsm, "THIS")
 	case command == "pop" && index == 1:
-		output = fmt.Sprintf(popPointer, "THAT")
+		output = fmt.Sprintf(popSymbolAsm, "THAT")
 	}
 
 	return output
@@ -215,11 +281,13 @@ func (c *CodeWriter) getPointer(command string, index int) string {
 func (c *CodeWriter) getTemp(command string, index int) string {
 	var output string
 
+	register := fmt.Sprintf("R%d", 5+index)
+
 	switch command {
 	case "push":
-		output = fmt.Sprintf(push, "TEMP", index+5)
+		output = fmt.Sprintf(pushSymbolAsm, register)
 	case "pop":
-		output = fmt.Sprintf(pop, "TEMP", index+5)
+		output = fmt.Sprintf(popSymbolAsm, register)
 	}
 
 	return output
@@ -230,7 +298,7 @@ func (c *CodeWriter) getConstant(command string, index int) string {
 
 	switch command {
 	case "push":
-		output = fmt.Sprintf(pushConstant, index)
+		output = fmt.Sprintf(pushConstantAsm, index)
 	}
 
 	return output
@@ -242,9 +310,9 @@ func (c *CodeWriter) getStatic(command string, index int) string {
 
 	switch command {
 	case "push":
-		output = fmt.Sprintf(pushStatic, v)
+		output = fmt.Sprintf(pushSymbolAsm, v)
 	case "pop":
-		output = fmt.Sprintf(popStatic, v)
+		output = fmt.Sprintf(popSymbolAsm, v)
 	}
 
 	return output

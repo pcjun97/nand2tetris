@@ -2,5 +2,3 @@
 D=A
 @SP
 M=D
-@Sys.init
-0;JMP

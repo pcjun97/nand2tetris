@@ -1,5 +1,5 @@
 @%s
-D=M
+D=A
 @SP
 A=M
 M=D

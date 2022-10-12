@@ -1,0 +1,15 @@
+@SP
+D=M
+@5
+D=D-A
+@%[2]d
+D=D-A
+@ARG
+M=D
+@SP
+D=M
+@LCL
+M=D
+@%[1]s
+0;JMP
+(%[3]s)
